@@ -134,12 +134,50 @@ proc_ax25_t *parse_ax25_line(char *line) {
     new_conn->magic = strtoul(fields[0], NULL, 16); 
     strncpy(new_conn->dev, fields[1], 13); new_conn->dev[13] = '\0';
     strncpy(new_conn->src_addr, fields[2], 9); new_conn->src_addr[9] = '\0';
-    strncpy(new_conn->dest_addr, fields[3], 9); new_conn->dest_addr[9] = '\0';
-    strncpy(new_conn->digi_addr[0], fields[4], 10); new_conn->digi_addr[0][10] = '\0';
-    strncpy(new_conn->digi_addr[1], fields[5], 10); new_conn->digi_addr[1][10] = '\0';
-    new_conn->ndigi = 0;
-    if (strcmp(fields[4], "*") != 0) new_conn->ndigi = 1;
-    if (strcmp(fields[5], "*") != 0) new_conn->ndigi = 2;
+ /* Parse dest_addr and digipeaters.
+       * On some kernel versions (old /proc format, no header line), the
+       * destination and digipeater callsigns are concatenated in a single
+       * whitespace-delimited token as "DEST,DIGI1[,DIGI2]" rather than
+       * occupying separate fields.  Detect the comma and split accordingly.
+       * When the new format is used (header line present), fields[3] holds
+       * the destination alone and no digi fields follow in the line.
+       */
+      {
+          char *comma1 = strchr(fields[3], ',');
+          if (comma1 != NULL) {
+              /* Old format with comma-joined digipeaters: "DEST,DIGI1[,DIGI2]" */
+              int dest_len = (int)(comma1 - fields[3]);
+              if (dest_len > 9) dest_len = 9;
+              strncpy(new_conn->dest_addr, fields[3], dest_len);
+              new_conn->dest_addr[dest_len] = '\0';
+
+              char *digi_chain = comma1 + 1;
+              char *comma2 = strchr(digi_chain, ',');
+              if (comma2 != NULL) {
+                  /* Two digipeaters */
+                  int digi1_len = (int)(comma2 - digi_chain);
+                  if (digi1_len > 10) digi1_len = 10;
+                  strncpy(new_conn->digi_addr[0], digi_chain, digi1_len);
+                  new_conn->digi_addr[0][digi1_len] = '\0';
+                  strncpy(new_conn->digi_addr[1], comma2 + 1, 10);
+                  new_conn->digi_addr[1][10] = '\0';
+                  new_conn->ndigi = 2;
+              } else {
+                  /* Single digipeater */
+                  strncpy(new_conn->digi_addr[0], digi_chain, 10);
+                  new_conn->digi_addr[0][10] = '\0';
+                  new_conn->digi_addr[1][0] = '\0';
+                  new_conn->ndigi = 1;
+              }
+          } else {
+              /* No comma: destination only, no digipeaters in this field */
+              strncpy(new_conn->dest_addr, fields[3], 9);
+              new_conn->dest_addr[9] = '\0';
+              new_conn->digi_addr[0][0] = '\0';
+              new_conn->digi_addr[1][0] = '\0';
+              new_conn->ndigi = 0;
+          }
+      }
     new_conn->st = (unsigned char)atoi(fields[st_idx]);
     new_conn->vs = (unsigned short)atoi(fields[vs_idx]);
     new_conn->vr = (unsigned short)atoi(fields[vr_idx]);
